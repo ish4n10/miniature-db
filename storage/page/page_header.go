@@ -3,57 +3,70 @@ package storage
 import (
 	"encoding/binary"
 
-	storage "github.com/ish4n10/miniaturedb/storage/common"
+	constants "github.com/ish4n10/miniaturedb/storage/common"
 )
 
 const (
-	PageTypeMeta storage.PageTypeT = iota
-	PageTypeData
-	PageTypeIndex
-)
-
-const (
-	PageLevelNone storage.PageLevelT = iota
-	PageLevelLeaf
-	PageLevelInternal
+	PageTypeRowInternal constants.PageTypeT = 0x01
+	PageTypeRowLeaf     constants.PageTypeT = 0x02
+	PageTypeOverflow    constants.PageTypeT = 0x03
+	PageTypeMeta        constants.PageTypeT = 0x04
 )
 
 type PageHeader struct {
-	PageID       uint32
-	PageType     storage.PageTypeT
-	PageLevel    storage.PageLevelT
-	Flags        uint16
-	CellCount    uint16
-	FreeStart    uint16
-	FreeEnd      uint16
-	ParentPageID uint32
-	LSN          uint64
-	Reserved     [4]byte
+	Recno    uint64
+	WriteGen uint64
+	MemSize  uint32
+	Entries  uint32
+	Type     constants.PageTypeT
+	Flags    uint8
+	Unused   uint8
+	Version  uint8
 }
 
-func (ph *PageHeader) WritePageHeader(buf []byte) {
-	binary.LittleEndian.PutUint32(buf[0:4], ph.PageID)
-	buf[4] = byte(ph.PageType)
-	buf[5] = byte(ph.PageLevel)
-	binary.LittleEndian.PutUint16(buf[6:8], ph.Flags)
-	binary.LittleEndian.PutUint16(buf[8:10], ph.CellCount)
-	binary.LittleEndian.PutUint16(buf[10:12], ph.FreeStart)
-	binary.LittleEndian.PutUint16(buf[12:14], ph.FreeEnd)
-	binary.LittleEndian.PutUint32(buf[14:18], ph.ParentPageID)
-	binary.LittleEndian.PutUint64(buf[18:26], ph.LSN)
-	copy(buf[26:32], ph.Reserved[:])
+type BlockHeader struct {
+	DiskSize uint32
+	Checksum uint32
+	Flags    uint8
+	Unused   [3]byte
+}
+
+func (ph *PageHeader) Write(buf []byte) {
+	binary.LittleEndian.PutUint64(buf[0:8], ph.Recno)
+	binary.LittleEndian.PutUint64(buf[8:16], ph.WriteGen)
+	binary.LittleEndian.PutUint32(buf[16:20], ph.MemSize)
+	binary.LittleEndian.PutUint32(buf[20:24], ph.Entries)
+	buf[24] = byte(ph.Type)
+	buf[25] = ph.Flags
+	buf[26] = 0
+	buf[27] = ph.Version
 }
 
 func ReadPageHeader(buf []byte) *PageHeader {
 	return &PageHeader{
-		PageID:       binary.LittleEndian.Uint32(buf[0:4]),
-		PageType:     storage.PageTypeT(buf[4]),
-		PageLevel:    storage.PageLevelT(buf[5]),
-		Flags:        binary.LittleEndian.Uint16(buf[6:8]),
-		CellCount:    binary.LittleEndian.Uint16(buf[8:10]),
-		FreeStart:    binary.LittleEndian.Uint16(buf[10:12]),
-		FreeEnd:      binary.LittleEndian.Uint16(buf[12:14]),
-		ParentPageID: binary.LittleEndian.Uint32(buf[14:18]),
-		LSN:          binary.LittleEndian.Uint64(buf[18:26]),
+		Recno:    binary.LittleEndian.Uint64(buf[0:8]),
+		WriteGen: binary.LittleEndian.Uint64(buf[8:16]),
+		MemSize:  binary.LittleEndian.Uint32(buf[16:20]),
+		Entries:  binary.LittleEndian.Uint32(buf[20:24]),
+		Type:     constants.PageTypeT(buf[24]),
+		Flags:    buf[25],
+		Version:  buf[27],
+	}
+}
+
+func (bh *BlockHeader) Write(buf []byte) {
+	binary.LittleEndian.PutUint32(buf[28:32], bh.DiskSize)
+	binary.LittleEndian.PutUint32(buf[32:36], bh.Checksum)
+	buf[36] = bh.Flags
+	buf[37] = 0
+	buf[38] = 0
+	buf[39] = 0
+}
+
+func ReadBlockHeader(buf []byte) *BlockHeader {
+	return &BlockHeader{
+		DiskSize: binary.LittleEndian.Uint32(buf[28:32]),
+		Checksum: binary.LittleEndian.Uint32(buf[32:36]),
+		Flags:    buf[36],
 	}
 }
