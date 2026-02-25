@@ -1,4 +1,4 @@
-package disk_manager
+package diskmanager
 
 import (
 	"github.com/ish4n10/miniaturedb/common"

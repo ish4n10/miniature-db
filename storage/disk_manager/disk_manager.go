@@ -1,4 +1,4 @@
-package disk_manager
+package diskmanager
 
 import (
 	"fmt"
@@ -26,7 +26,7 @@ func InitDiskManager(path string) (*DiskManager, error) {
 
 func (dm *DiskManager) ReadPage(pageID uint32, buffer []byte) error {
 	if len(buffer) > common.PageSize {
-		return fmt.Errorf("buffer must be %f bytes", common.PageSize)
+		return fmt.Errorf("buffer must be %d bytes", common.PageSize)
 	}
 
 	dm.mutex.Lock()
@@ -37,12 +37,12 @@ func (dm *DiskManager) ReadPage(pageID uint32, buffer []byte) error {
 		return err
 	}
 
-	bytes_read, err := dm.file.Read(buffer)
+	bytesRead, err := dm.file.Read(buffer)
 	if err != nil {
 		return err
 	}
 
-	for i := bytes_read; i < common.PageSize; i++ {
+	for i := bytesRead; i < common.PageSize; i++ {
 		buffer[i] = 0
 	}
 	return nil
@@ -50,7 +50,7 @@ func (dm *DiskManager) ReadPage(pageID uint32, buffer []byte) error {
 
 func (dm *DiskManager) WritePage(pageID uint32, buffer []byte) error {
 	if len(buffer) > common.PageSize {
-		return fmt.Errorf("buffer must be %f bytes", common.PageSize)
+		return fmt.Errorf("buffer must be %d bytes", common.PageSize)
 	}
 
 	dm.mutex.Lock()
@@ -67,9 +67,13 @@ func (dm *DiskManager) WritePage(pageID uint32, buffer []byte) error {
 }
 
 func (dm *DiskManager) CloseFile() error {
+	dm.mutex.Lock()
+	defer dm.mutex.Unlock()
 	return dm.file.Close()
 }
 
 func (dm *DiskManager) Flush() error {
+	dm.mutex.Lock()
+	defer dm.mutex.Unlock()
 	return dm.file.Sync()
 }
