@@ -4,14 +4,14 @@ import (
 	"os"
 	"testing"
 
-	diskmanager "github.com/ish4n10/miniaturedb/storage/disk_manager"
+	storage "github.com/ish4n10/miniaturedb/storage/disk_manager"
 )
 
 func TestDiskManager(t *testing.T) {
 	path := "test.db"
 	defer os.Remove(path)
 
-	dm, err := diskmanager.InitDiskManager(path)
+	dm, err := storage.InitDiskManager(path)
 	if err != nil {
 		t.Fatalf("NewDiskManager failed: %v", err)
 	}

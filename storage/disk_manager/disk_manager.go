@@ -1,11 +1,11 @@
-package diskmanager
+package storage
 
 import (
 	"fmt"
 	"os"
 	"sync"
 
-	"github.com/ish4n10/miniaturedb/common"
+	storage "github.com/ish4n10/miniaturedb/storage/common"
 )
 
 type DiskManager struct {
@@ -25,8 +25,8 @@ func InitDiskManager(path string) (*DiskManager, error) {
 }
 
 func (dm *DiskManager) ReadPage(pageID uint32, buffer []byte) error {
-	if len(buffer) > common.PageSize {
-		return fmt.Errorf("buffer must be %d bytes", common.PageSize)
+	if len(buffer) > storage.PageSize {
+		return fmt.Errorf("buffer must be %d bytes", storage.PageSize)
 	}
 
 	dm.mutex.Lock()
@@ -42,15 +42,15 @@ func (dm *DiskManager) ReadPage(pageID uint32, buffer []byte) error {
 		return err
 	}
 
-	for i := bytesRead; i < common.PageSize; i++ {
+	for i := bytesRead; i < storage.PageSize; i++ {
 		buffer[i] = 0
 	}
 	return nil
 }
 
 func (dm *DiskManager) WritePage(pageID uint32, buffer []byte) error {
-	if len(buffer) > common.PageSize {
-		return fmt.Errorf("buffer must be %d bytes", common.PageSize)
+	if len(buffer) > storage.PageSize {
+		return fmt.Errorf("buffer must be %d bytes", storage.PageSize)
 	}
 
 	dm.mutex.Lock()
