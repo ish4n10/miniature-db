@@ -1,6 +1,9 @@
 package storage
 
 import (
+	"errors"
+
+	cell "github.com/ish4n10/miniaturedb/storage/cell"
 	constants "github.com/ish4n10/miniaturedb/storage/common"
 )
 
@@ -48,4 +51,89 @@ func InitPage(p *Page, recno uint64, pageType constants.PageTypeT) {
 	}
 
 	p.WriteHeaders()
+}
+
+func (p *Page) nextFreeOffset() (int, error) {
+	offset := constants.PageHeaderSize
+
+	for offset < constants.PageSize {
+		if p.Data[offset] == 0x00 {
+			return offset, nil
+		}
+
+		_, newOffset, err := cell.Read(p.Data, offset)
+
+		if err != nil {
+			return offset, err
+		}
+
+		offset = newOffset
+	}
+
+	return offset, nil
+}
+
+func (p *Page) AppendKeyValue(key []byte, value []byte) error {
+	keyCell := &cell.Cell{Type: cell.CellTypeKey, Data: key}
+	valueCell := &cell.Cell{Type: cell.CellTypeValue, Data: value}
+
+	neededSize := keyCell.EncodedSize() + valueCell.EncodedSize()
+
+	offset, err := p.nextFreeOffset()
+	if err != nil {
+		return err
+	}
+	if offset+neededSize > constants.PageSize {
+		return errors.New("page is full")
+	}
+
+	offset, err = cell.Write(p.Data, offset, keyCell)
+
+	if err != nil {
+		return err
+	}
+
+	offset, err = cell.Write(p.Data, offset, valueCell)
+
+	if err != nil {
+		return err
+	}
+
+	p.PageHeader.Entries += 2
+	p.WriteHeaders()
+	return nil
+}
+
+func (p *Page) AppendDeleted(key []byte) error {
+	keyCell := &cell.Cell{Type: cell.CellTypeKey, Data: key}
+	delCell := &cell.Cell{Type: cell.CellTypeDeleted, Data: []byte{}}
+
+	needed := keyCell.EncodedSize() + delCell.EncodedSize()
+
+	offset, err := p.nextFreeOffset()
+	if err != nil {
+		return err
+	}
+
+	if offset+needed > constants.PageSize {
+		return errors.New("page is full")
+	}
+
+	offset, err = cell.Write(p.Data, offset, keyCell)
+	if err != nil {
+		return err
+	}
+
+	_, err = cell.Write(p.Data, offset, delCell)
+	if err != nil {
+		return err
+	}
+
+	p.PageHeader.Entries += 2
+	p.WriteHeaders()
+	return nil
+}
+
+func (p *Page) ReadCells() ([]*cell.Cell, error) {
+	return cell.ReadAll(p.Data, constants.PageHeaderSize)
 }
