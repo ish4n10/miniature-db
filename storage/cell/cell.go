@@ -24,7 +24,7 @@ type Cell struct {
 func (c *Cell) EncodedSize() int {
 	n := len(c.Data)
 
-	if n < 0xff {
+	if n <= 0xff {
 		return 1 + 1 + n
 	}
 	return 1 + 4 + n
@@ -66,9 +66,9 @@ func Read(buf []byte, offset int) (*Cell, int, error) {
 	descriptor := buf[offset]
 	offset++
 
-	cellType := CellType(buf[offset] >> 4)
+	cellType := CellType(descriptor >> 4)
 
-	isShort := (descriptor | shortFlag) != 0
+	isShort := (descriptor & shortFlag) != 0
 
 	var dataLength int
 
@@ -94,7 +94,7 @@ func Read(buf []byte, offset int) (*Cell, int, error) {
 
 	copy(data, buf[offset:offset+dataLength])
 
-	return &Cell{Type: cellType, Data: data}, offset, nil
+	return &Cell{Type: cellType, Data: data}, offset + dataLength, nil
 }
 
 func ReadAll(buf []byte, startOffset int) ([]*Cell, error) {
