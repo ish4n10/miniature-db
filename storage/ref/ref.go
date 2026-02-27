@@ -18,5 +18,5 @@ type Ref struct {
 	PageID   uint32
 	State    RefState
 	PinCount int
-	LastUsed int
+	LastUsed int64
 }
