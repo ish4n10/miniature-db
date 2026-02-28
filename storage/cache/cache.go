@@ -36,7 +36,7 @@ func (c *Cache) usagePercentage() float64 {
 	return float64(used) / float64(c.maxPages)
 }
 
-func NewCache(dm *diskmanager.DiskManager, maxPages int) *Cache {
+func NewCache(maxPages int, dm *diskmanager.DiskManager) *Cache {
 	refs := make([]*ref.Ref, maxPages)
 
 	for i := range refs {
@@ -141,4 +141,84 @@ func (c *Cache) FetchPage(pageID uint32) (*page.Page, error) {
 	c.bytesInMem += constants.PageSize
 
 	return slot.Page, nil
+}
+
+func (c *Cache) UnpinPage(pageID uint32, dirty bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var refRequired *ref.Ref
+	for i := range c.refs {
+		currentRef := c.refs[i]
+
+		if currentRef.PageID == pageID && currentRef.State != ref.RefStateDisk {
+			refRequired = currentRef
+		}
+	}
+
+	if refRequired == nil {
+		return errors.New("Could not find page in cahceh")
+	}
+
+	if refRequired.PinCount <= 0 {
+		return errors.New("Already unpinned or smth")
+	}
+
+	refRequired.PinCount--
+
+	if dirty && refRequired.State != ref.RefStateDirty {
+		refRequired.State = ref.RefStateDirty
+		c.bytesDirty += constants.PageSize
+	}
+	return nil
+}
+
+func (c *Cache) FlushPage(pageID uint32) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var refRequired *ref.Ref
+	for i := range c.refs {
+		currentRef := c.refs[i]
+
+		if currentRef.PageID == pageID && currentRef.State != ref.RefStateDisk {
+			refRequired = currentRef
+		}
+	}
+
+	if refRequired == nil {
+		return errors.New("Could not find page in cahceh")
+	}
+
+	c.dm.WritePage(pageID, refRequired.Page.Data)
+	err := c.dm.WritePage(pageID, refRequired.Page.Data)
+	if err != nil {
+		return fmt.Errorf("failed to flush page %d: %w", pageID, err)
+	}
+
+	if refRequired.State == ref.RefStateDirty {
+		c.bytesDirty -= constants.PageSize
+	}
+	refRequired.State = ref.RefStateMem
+
+	return nil
+}
+
+func (c *Cache) FlushAll() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.refs {
+		currentRef := c.refs[i]
+		if currentRef.State == ref.RefStateDirty {
+			err := c.dm.WritePage(currentRef.PageID, currentRef.Page.Data)
+			if err != nil {
+				return fmt.Errorf("failed to flush page %d: %w", currentRef.PageID, err)
+			}
+			c.bytesDirty -= constants.PageSize
+			currentRef.State = ref.RefStateMem
+		}
+	}
+
+	return nil
 }
