@@ -1,6 +1,8 @@
 package btree
 
 import (
+	"encoding/binary"
+	"errors"
 	"fmt"
 
 	cache "github.com/ish4n10/miniaturedb/storage/cache"
@@ -12,9 +14,10 @@ type Btree struct {
 	rootPageID uint32
 	c          *cache.Cache
 	dm         *diskmanager.DiskManager
+	compare    func(a, b []byte) int
 }
 
-func NewBtree(c *cache.Cache, dm *diskmanager.DiskManager) (*Btree, error) {
+func NewBtree(c *cache.Cache, dm *diskmanager.DiskManager, compare func(a, b []byte) int) (*Btree, error) {
 	pageID := dm.AllocatePage()
 
 	p := page.NewPage()
@@ -26,21 +29,55 @@ func NewBtree(c *cache.Cache, dm *diskmanager.DiskManager) (*Btree, error) {
 		return nil, fmt.Errorf("failed to write root page: %w", err)
 	}
 
-	return &Btree{rootPageID: pageID, c: c, dm: dm}, nil
+	return &Btree{rootPageID: pageID, c: c, dm: dm, compare: compare}, nil
 }
 
-// func (bt *Btree) Search(key []byte) ([]byte, error) {
-// 	p, err := bt.c.FetchPage(bt.rootPageID)
-// 	defer bt.c.UnpinPage(bt.rootPageID, false)
-// 	if err != nil {
-// 		return nil, errors.New("Could not fetch root page")
-// 	}
+func (bt *Btree) Search(key []byte) ([]byte, error) {
+	currentPageID := bt.rootPageID
 
-// 	for {
-// 		cells, err := cell.ReadAll(p.Data, 0)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("Error in fetching all cells")
-// 		}
+	for {
+		p, err := bt.c.FetchPage(currentPageID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch page %d: %w", currentPageID, err)
+		}
 
-// 	}
-// }
+		cells, err := p.ReadCells()
+		if err != nil {
+			bt.c.UnpinPage(currentPageID, false)
+			return nil, err
+		}
+
+		pageType := p.PageHeader.Type
+		bt.c.UnpinPage(currentPageID, false)
+
+		switch pageType {
+
+		case page.PageTypeRowLeaf:
+			for i := 0; i+1 < len(cells); i += 2 {
+				if bt.compare(cells[i].Data, key) == 0 {
+					value := make([]byte, len(cells[i+1].Data))
+					copy(value, cells[i+1].Data)
+					return value, nil
+				}
+			}
+			return nil, errors.New("key not found")
+
+		case page.PageTypeRowInternal:
+			// default
+			childPageID := binary.LittleEndian.Uint32(cells[len(cells)-1].Data)
+
+			for i := 0; i+1 < len(cells); i += 2 {
+				if bt.compare(key, cells[i].Data) < 0 {
+
+					childPageID = binary.LittleEndian.Uint32(cells[i+1].Data)
+					break
+				}
+			}
+
+			currentPageID = childPageID
+
+		default:
+			return nil, fmt.Errorf("unknown page type: %d", pageType)
+		}
+	}
+}
