@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/binary"
 	"errors"
 
 	cell "github.com/ish4n10/miniaturedb/storage/cell"
@@ -100,6 +101,64 @@ func (p *Page) AppendKeyValue(key []byte, value []byte) error {
 	}
 
 	p.PageHeader.Entries += 2
+	p.WriteHeaders()
+	return nil
+}
+
+func (p *Page) AppendKeyAddr(key []byte, pageID uint32) error {
+
+	valueData := make([]byte, 4)
+	binary.LittleEndian.PutUint32(valueData, pageID)
+	keyCell := &cell.Cell{Type: cell.CellTypeKey, Data: key}
+	addrCell := &cell.Cell{Type: cell.CellTypeAddr, Data: valueData}
+
+	neededSize := keyCell.EncodedSize() + addrCell.EncodedSize()
+
+	offset, err := p.nextFreeOffset()
+	if err != nil {
+		return err
+	}
+	if offset+neededSize > constants.PageSize {
+		return errors.New("page is full")
+	}
+
+	offset, err = cell.Write(p.Data, offset, keyCell)
+
+	if err != nil {
+		return err
+	}
+
+	offset, err = cell.Write(p.Data, offset, addrCell)
+
+	if err != nil {
+		return err
+	}
+
+	p.PageHeader.Entries += 2
+	p.WriteHeaders()
+	return nil
+}
+
+func (p *Page) AppendAddr(pageID uint32) error {
+	pageIDBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(pageIDBytes, pageID)
+
+	addrCell := &cell.Cell{Type: cell.CellTypeAddr, Data: pageIDBytes}
+
+	offset, err := p.nextFreeOffset()
+	if err != nil {
+		return err
+	}
+	if offset+addrCell.EncodedSize() > constants.PageSize {
+		return errors.New("page is full")
+	}
+
+	_, err = cell.Write(p.Data, offset, addrCell)
+	if err != nil {
+		return err
+	}
+
+	p.PageHeader.Entries++
 	p.WriteHeaders()
 	return nil
 }
