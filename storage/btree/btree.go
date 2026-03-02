@@ -88,7 +88,6 @@ func (bt *Btree) Insert(key []byte, value []byte) error {
 	path := []uint32{}
 	currentPageID := bt.rootPageID
 
-	// phase 1: traverse to leaf
 	for {
 		p, err := bt.c.FetchPage(currentPageID)
 		if err != nil {
@@ -123,7 +122,6 @@ func (bt *Btree) Insert(key []byte, value []byte) error {
 		currentPageID = childPageID
 	}
 
-	// phase 2: insert on leaf
 	p, err := bt.c.FetchPage(currentPageID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch leaf page %d: %w", currentPageID, err)
@@ -132,10 +130,9 @@ func (bt *Btree) Insert(key []byte, value []byte) error {
 	err = p.AppendKeyValue(key, value)
 	if err != nil {
 		bt.c.UnpinPage(currentPageID, false)
-		// page is full → need to split (phase 3, coming next)
 		return fmt.Errorf("page full, split not implemented yet: %w", err)
 	}
 
-	bt.c.UnpinPage(currentPageID, true) // dirty = true, we modified it
+	bt.c.UnpinPage(currentPageID, true)
 	return nil
 }
