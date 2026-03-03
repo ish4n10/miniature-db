@@ -107,10 +107,11 @@ func TestInsert_NotFound(t *testing.T) {
 func TestInsert_OverwriteKey(t *testing.T) {
 	bt := setupBtree(t)
 
-	bt.Insert([]byte("user:1"), []byte(`{"name":"alice"}`))
-	bt.Insert([]byte("user:1"), []byte(`{"name":"alice-updated"}`))
+	// bt.Insert([]byte("user:1"), []byte(`{"name":"sssss"}`))
+	bt.Insert([]byte("user:2"), []byte(`{"name":"alice"}`))
+	bt.Insert([]byte("user:2"), []byte(`{"name":"alice-updated"}`))
 
-	val, err := bt.Search([]byte("user:1"))
+	val, err := bt.Search([]byte("user:2"))
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
