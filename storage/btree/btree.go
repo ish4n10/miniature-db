@@ -98,17 +98,15 @@ func (bt *Btree) Insert(key []byte, value []byte) error {
 
 		if pageType == page.PageTypeRowLeaf {
 			bt.c.UnpinPage(currentPageID, false)
-			break // found our leaf, stop traversal
+			break
 		}
 
-		// find correct child
 		cells, err := p.ReadCells()
 		if err != nil {
 			bt.c.UnpinPage(currentPageID, false)
 			return err
 		}
 
-		// default to rightmost child
 		childPageID := binary.LittleEndian.Uint32(cells[len(cells)-1].Data)
 		for i := 0; i+1 < len(cells); i += 2 {
 			if bt.compare(key, cells[i].Data) < 0 {
@@ -124,7 +122,17 @@ func (bt *Btree) Insert(key []byte, value []byte) error {
 
 	p, err := bt.c.FetchPage(currentPageID)
 	if err != nil {
-		return fmt.Errorf("failed to fetch leaf page %d: %w", currentPageID, err)
+		return fmt.Errorf("failed to fetch leaf: %w", err)
+	}
+
+	found, err := p.FindAndUpdate(key, value, bt.compare)
+	if err != nil {
+		bt.c.UnpinPage(currentPageID, false)
+		return err
+	}
+	if found {
+		bt.c.UnpinPage(currentPageID, true)
+		return nil
 	}
 
 	err = p.AppendKeyValue(key, value)

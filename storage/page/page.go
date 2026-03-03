@@ -196,3 +196,38 @@ func (p *Page) AppendDeleted(key []byte) error {
 func (p *Page) ReadCells() ([]*cell.Cell, error) {
 	return cell.ReadAll(p.Data, constants.PageHeaderSize)
 }
+
+func (p *Page) FindAndUpdate(key []byte, newValue []byte, compare func(a, b []byte) int) (bool, error) {
+	cells, err := p.ReadCells()
+	if err != nil {
+		return false, err
+	}
+
+	found := false
+	for i := 0; i+1 < len(cells); i += 2 {
+		if compare(cells[i].Data, key) == 0 {
+			cells[i+1].Data = newValue
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return false, nil
+	}
+
+	// rewrite the whole page from scratch
+	pageType := p.PageHeader.Type
+	recno := p.PageHeader.Recno
+	clear(p.Data)
+	InitPage(p, recno, pageType)
+
+	for i := 0; i+1 < len(cells); i += 2 {
+		err := p.AppendKeyValue(cells[i].Data, cells[i+1].Data)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return true, nil
+}
