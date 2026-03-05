@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	cache "github.com/ish4n10/miniaturedb/storage/cache"
+	"github.com/ish4n10/miniaturedb/storage/cell"
 	diskmanager "github.com/ish4n10/miniaturedb/storage/disk_manager"
 	page "github.com/ish4n10/miniaturedb/storage/page"
 )
@@ -136,11 +137,95 @@ func (bt *Btree) Insert(key []byte, value []byte) error {
 	}
 
 	err = p.AppendKeyValue(key, value)
-	if err != nil {
-		bt.c.UnpinPage(currentPageID, false)
-		return fmt.Errorf("page full, split not implemented yet: %w", err)
+	if err == nil {
+		bt.c.UnpinPage(currentPageID, true)
+		return nil
+	}
+	// leaf full now
+
+	cells, _ := p.ReadCells()
+	totalPairs := len(cells) / 2
+	mid := totalPairs / 2
+
+	leftCells := cells[:mid*2]
+	rightCells := cells[mid*2:]
+
+	middleKey := make([]byte, len(rightCells[0].Data))
+
+	copy(middleKey, rightCells[0].Data)
+
+	recno := p.PageHeader.Recno
+	clear(p.Data)
+	page.InitPage(p, recno, page.PageTypeRowLeaf)
+
+	for i := 0; i+1 < len(leftCells); i += 2 {
+		p.AppendKeyValue(leftCells[i].Data, leftCells[i+1].Data)
 	}
 
-	bt.c.UnpinPage(currentPageID, true)
+	newPageID := bt.dm.AllocatePage()
+	newPage := page.NewPage()
+	page.InitPage(newPage, 0, page.PageTypeRowLeaf)
+	for i := 0; i+1 < len(rightCells); i += 2 {
+		newPage.AppendKeyValue(rightCells[i].Data, rightCells[i+1].Data)
+	}
+
+	if bt.compare(key, middleKey) < 0 {
+		p.AppendKeyValue(key, value)
+		bt.c.UnpinPage(currentPageID, true)
+		bt.dm.WritePage(newPageID, newPage.Data)
+	} else {
+		newPage.AppendKeyValue(key, value)
+		bt.c.UnpinPage(currentPageID, true)
+		bt.dm.WritePage(newPageID, newPage.Data)
+	}
+
+	// promote middle key to parent
+	if len(path) == 0 {
+		newRootID := bt.dm.AllocatePage()
+		newRoot := page.NewPage()
+		page.InitPage(newRoot, 0, page.PageTypeRowInternal)
+		newRoot.AppendKeyAddr(middleKey, currentPageID)
+		newRoot.AppendKeyAddr(middleKey, newPageID)
+		if err := bt.dm.WritePage(newRootID, newRoot.Data); err != nil {
+			return fmt.Errorf("failed to write new root: %w", err)
+		}
+		bt.rootPageID = newRootID
+		return nil
+	}
+
+	// insert middle key into existing parent
+	parentPageID := path[len(path)-1]
+	parentPage, err := bt.c.FetchPage(parentPageID)
+	if err != nil {
+		return err
+	}
+
+	parentCells, _ := parentPage.ReadCells()
+	pageIDBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(pageIDBytes, newPageID)
+
+	newKeyCell := &cell.Cell{Type: cell.CellTypeKey, Data: middleKey}
+	newAddrCell := &cell.Cell{Type: cell.CellTypeAddr, Data: pageIDBytes}
+
+	insertAt := len(parentCells)
+	for i := 0; i < len(parentCells); i += 2 {
+		if bt.compare(middleKey, parentCells[i].Data) < 0 {
+			insertAt = i
+			break
+		}
+	}
+
+	newCells := make([]*cell.Cell, 0, len(parentCells)+2)
+	newCells = append(newCells, parentCells[:insertAt]...)
+	newCells = append(newCells, newKeyCell, newAddrCell)
+	newCells = append(newCells, parentCells[insertAt:]...)
+
+	clear(parentPage.Data)
+	page.InitPage(parentPage, parentPage.PageHeader.Recno, page.PageTypeRowInternal)
+	for i := 0; i+1 < len(newCells); i += 2 {
+		parentPage.AppendKeyAddr(newCells[i].Data, binary.LittleEndian.Uint32(newCells[i+1].Data))
+	}
+
+	bt.c.UnpinPage(parentPageID, true)
 	return nil
 }
