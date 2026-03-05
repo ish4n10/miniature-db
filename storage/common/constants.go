@@ -1,7 +1,7 @@
 package common
 
 const (
-	PageSize       = 4096
+	PageSize       = 256
 	PageHeaderSize = 40
 
 	MagicNumber uint32 = 0xdeadbeef

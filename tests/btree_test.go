@@ -2,10 +2,11 @@ package test
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
-	"github.com/ish4n10/miniaturedb/storage/btree"
-	"github.com/ish4n10/miniaturedb/storage/cache"
+	btree "github.com/ish4n10/miniaturedb/storage/btree"
+	cache "github.com/ish4n10/miniaturedb/storage/cache"
 	diskmanager "github.com/ish4n10/miniaturedb/storage/disk_manager"
 )
 
@@ -119,4 +120,75 @@ func TestInsert_OverwriteKey(t *testing.T) {
 	if string(val) != `{"name":"alice-updated"}` {
 		t.Fatalf("wrong value: %s", val)
 	}
+}
+
+func TestInsert_Split(t *testing.T) {
+	bt := setupBtree(t)
+
+	t.Log("=== inserting 100 keys ===")
+	for i := 0; i < 100; i++ {
+		key := fmt.Sprintf("user:%03d", i)
+		val := fmt.Sprintf(`{"id":%d}`, i)
+		if err := bt.Insert([]byte(key), []byte(val)); err != nil {
+			t.Fatalf("insert %s failed: %v", key, err)
+		}
+	}
+
+	height, leafPages, internalPages := bt.Stats()
+	t.Logf("tree height=%d leafPages=%d internalPages=%d", height, leafPages, internalPages)
+
+	if leafPages <= 1 {
+		t.Fatal("expected split to have happened, still only 1 leaf page")
+	}
+	if height < 2 {
+		t.Fatal("expected tree height >= 2 after split")
+	}
+
+	t.Log("=== searching all 100 keys ===")
+	for i := 0; i < 100; i++ {
+		key := fmt.Sprintf("user:%03d", i)
+		expected := fmt.Sprintf(`{"id":%d}`, i)
+		val, err := bt.Search([]byte(key))
+		if err != nil {
+			t.Fatalf("search %s failed: %v", key, err)
+		}
+		if string(val) != expected {
+			t.Fatalf("wrong value for %s: got %s want %s", key, val, expected)
+		}
+	}
+	t.Log("=== all keys found correctly ===")
+}
+
+func TestInsert_SplitOrder(t *testing.T) {
+	bt := setupBtree(t)
+
+	t.Log("=== inserting 100 keys in reverse order ===")
+	for i := 100; i >= 0; i-- {
+		key := fmt.Sprintf("user:%03d", i)
+		val := fmt.Sprintf(`{"id":%d}`, i)
+		if err := bt.Insert([]byte(key), []byte(val)); err != nil {
+			t.Fatalf("insert %s failed: %v", key, err)
+		}
+	}
+
+	height, leafPages, internalPages := bt.Stats()
+	t.Logf("tree height=%d leafPages=%d internalPages=%d", height, leafPages, internalPages)
+
+	if leafPages <= 1 {
+		t.Fatal("expected split to have happened")
+	}
+
+	t.Log("=== searching all keys ===")
+	for i := 100; i >= 0; i-- {
+		key := fmt.Sprintf("user:%03d", i)
+		expected := fmt.Sprintf(`{"id":%d}`, i)
+		val, err := bt.Search([]byte(key))
+		if err != nil {
+			t.Fatalf("search %s failed: %v", key, err)
+		}
+		if string(val) != expected {
+			t.Fatalf("wrong value for %s: got %s want %s", key, val, expected)
+		}
+	}
+	t.Log("=== all keys found correctly ===")
 }
