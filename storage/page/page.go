@@ -192,6 +192,47 @@ func (p *Page) AppendDeleted(key []byte) error {
 	p.WriteHeaders()
 	return nil
 }
+func (p *Page) InsertSorted(key []byte, value []byte, compare func(a, b []byte) int) error {
+	cells, err := p.ReadCells()
+	if err != nil {
+		return err
+	}
+
+	// find insert position
+	insertAt := len(cells)
+	for i := 0; i+1 < len(cells); i += 2 {
+		if compare(key, cells[i].Data) < 0 {
+			insertAt = i
+			break
+		}
+	}
+
+	newKey := &cell.Cell{Type: cell.CellTypeKey, Data: key}
+	newVal := &cell.Cell{Type: cell.CellTypeValue, Data: value}
+
+	newCells := make([]*cell.Cell, 0, len(cells)+2)
+	newCells = append(newCells, cells[:insertAt]...)
+	newCells = append(newCells, newKey, newVal)
+	newCells = append(newCells, cells[insertAt:]...)
+
+	// check if it fits
+	totalSize := constants.PageHeaderSize
+	for _, c := range newCells {
+		totalSize += c.EncodedSize()
+	}
+	if totalSize > constants.PageSize {
+		return errors.New("page is full")
+	}
+
+	// rewrite page
+	recno := p.PageHeader.Recno
+	clear(p.Data)
+	InitPage(p, recno, PageTypeRowLeaf)
+	for i := 0; i+1 < len(newCells); i += 2 {
+		p.AppendKeyValue(newCells[i].Data, newCells[i+1].Data)
+	}
+	return nil
+}
 
 func (p *Page) ReadCells() ([]*cell.Cell, error) {
 	return cell.ReadAll(p.Data, constants.PageHeaderSize)

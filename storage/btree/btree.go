@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"strings"
 
 	cache "github.com/ish4n10/miniaturedb/storage/cache"
+	cell "github.com/ish4n10/miniaturedb/storage/cell"
 	diskmanager "github.com/ish4n10/miniaturedb/storage/disk_manager"
 	page "github.com/ish4n10/miniaturedb/storage/page"
 )
@@ -20,16 +20,11 @@ type Btree struct {
 
 func NewBtree(c *cache.Cache, dm *diskmanager.DiskManager, compare func(a, b []byte) int) (*Btree, error) {
 	pageID := dm.AllocatePage()
-
 	p := page.NewPage()
-
 	page.InitPage(p, 0, page.PageTypeRowLeaf)
-
-	err := dm.WritePage(pageID, p.Data)
-	if err != nil {
+	if err := dm.WritePage(pageID, p.Data); err != nil {
 		return nil, fmt.Errorf("failed to write root page: %w", err)
 	}
-
 	return &Btree{rootPageID: pageID, c: c, dm: dm, compare: compare}, nil
 }
 
@@ -39,49 +34,37 @@ func (bt *Btree) Search(key []byte) ([]byte, error) {
 	for {
 		p, err := bt.c.FetchPage(currentPageID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch page %d: %w", currentPageID, err)
-		}
-
-		cells, err := p.ReadCells()
-		if err != nil {
-			bt.c.UnpinPage(currentPageID, false)
 			return nil, err
 		}
 
+		cells, err := p.ReadCells()
 		pageType := p.PageHeader.Type
 		bt.c.UnpinPage(currentPageID, false)
+		if err != nil {
+			return nil, err
+		}
 
 		switch pageType {
-
 		case page.PageTypeRowLeaf:
-			{
-				for i := 0; i+1 < len(cells); i += 2 {
-					if bt.compare(cells[i].Data, key) == 0 {
-						value := make([]byte, len(cells[i+1].Data))
-						copy(value, cells[i+1].Data)
-						return value, nil
-					}
+			for i := 0; i+1 < len(cells); i += 2 {
+				if bt.compare(cells[i].Data, key) == 0 {
+					val := make([]byte, len(cells[i+1].Data))
+					copy(val, cells[i+1].Data)
+					return val, nil
 				}
-				return nil, errors.New("key not found")
 			}
+			return nil, errors.New("key not found")
+
 		case page.PageTypeRowInternal:
-			{
-				if len(cells) < 2 {
-					return nil, errors.New("corrupt internal page")
+			// layout: [addr(P0)][key(K1)][addr(P1)][key(K2)][addr(P2)]
+			childPageID := binary.LittleEndian.Uint32(cells[0].Data)
+			for i := 1; i+1 < len(cells); i += 2 {
+				if bt.compare(key, cells[i].Data) >= 0 {
+					childPageID = binary.LittleEndian.Uint32(cells[i+1].Data)
 				}
-
-				// default to first child
-				childPageID := binary.LittleEndian.Uint32(cells[1].Data)
-
-				// find last entry where key >= cells[i] (minimum key of subtree)
-				for i := 0; i+1 < len(cells); i += 2 {
-					if bt.compare(key, cells[i].Data) >= 0 {
-						childPageID = binary.LittleEndian.Uint32(cells[i+1].Data)
-					}
-				}
-
-				currentPageID = childPageID
 			}
+			currentPageID = childPageID
+
 		default:
 			return nil, fmt.Errorf("unknown page type: %d", pageType)
 		}
@@ -89,43 +72,43 @@ func (bt *Btree) Search(key []byte) ([]byte, error) {
 }
 
 func (bt *Btree) Insert(key []byte, value []byte) error {
+	var path []uint32
 	currentPageID := bt.rootPageID
 
 	// traverse to leaf
 	for {
 		p, err := bt.c.FetchPage(currentPageID)
 		if err != nil {
-			return fmt.Errorf("failed to fetch page %d: %w", currentPageID, err)
+			return err
 		}
 
 		pageType := p.PageHeader.Type
-
 		if pageType == page.PageTypeRowLeaf {
 			bt.c.UnpinPage(currentPageID, false)
 			break
 		}
 
 		cells, err := p.ReadCells()
+		bt.c.UnpinPage(currentPageID, false)
 		if err != nil {
-			bt.c.UnpinPage(currentPageID, false)
 			return err
 		}
 
-		childPageID := binary.LittleEndian.Uint32(cells[1].Data)
-		for i := 0; i+1 < len(cells); i += 2 {
+		childPageID := binary.LittleEndian.Uint32(cells[0].Data)
+		for i := 1; i+1 < len(cells); i += 2 {
 			if bt.compare(key, cells[i].Data) >= 0 {
 				childPageID = binary.LittleEndian.Uint32(cells[i+1].Data)
 			}
 		}
 
-		bt.c.UnpinPage(currentPageID, false)
+		path = append(path, currentPageID)
 		currentPageID = childPageID
 	}
 
-	// insert on leaf
+	// try insert on leaf
 	p, err := bt.c.FetchPage(currentPageID)
 	if err != nil {
-		return fmt.Errorf("failed to fetch leaf: %w", err)
+		return err
 	}
 
 	found, err := p.FindAndUpdate(key, value, bt.compare)
@@ -138,46 +121,57 @@ func (bt *Btree) Insert(key []byte, value []byte) error {
 		return nil
 	}
 
-	err = p.AppendKeyValue(key, value)
-	if err != nil {
+	err = p.InsertSorted(key, value, bt.compare)
+	if err == nil {
+		bt.c.UnpinPage(currentPageID, true)
+		return nil
+	}
+	if err.Error() != "page is full" {
 		bt.c.UnpinPage(currentPageID, false)
-		return fmt.Errorf("page full: %w", err)
+		return err
 	}
 
-	bt.c.UnpinPage(currentPageID, true)
-	return nil
-}
-
-func (bt *Btree) PrintTree(t interface{ Logf(string, ...any) }) {
-	t.Logf("=== TREE (root=%d) ===", bt.rootPageID)
-	bt.printPage(t, bt.rootPageID, 0)
-}
-
-func (bt *Btree) printPage(t interface{ Logf(string, ...any) }, pageID uint32, depth int) {
-	indent := strings.Repeat("  ", depth)
-
-	p, err := bt.c.FetchPage(pageID)
-	if err != nil {
-		t.Logf("%sERROR fetching page %d: %v", indent, pageID, err)
-		return
-	}
-
+	// page full split
 	cells, _ := p.ReadCells()
-	pageType := p.PageHeader.Type
-	bt.c.UnpinPage(pageID, false)
+	bt.c.UnpinPage(currentPageID, true)
 
-	if pageType == page.PageTypeRowLeaf {
-		t.Logf("%sLEAF(page=%d) keys=%d", indent, pageID, len(cells)/2)
-		for i := 0; i+1 < len(cells); i += 2 {
-			t.Logf("%s  [%s] = %s", indent, cells[i].Data, cells[i+1].Data)
-		}
-		return
-	}
-
-	t.Logf("%sINTERNAL(page=%d) keys=%d", indent, pageID, len(cells)/2)
+	// merge new key into cells sorted
+	insertAt := len(cells)
 	for i := 0; i+1 < len(cells); i += 2 {
-		childID := binary.LittleEndian.Uint32(cells[i+1].Data)
-		t.Logf("%s  [%s] → page=%d", indent, cells[i].Data, childID)
-		bt.printPage(t, childID, depth+1)
+		if bt.compare(key, cells[i].Data) < 0 {
+			insertAt = i
+			break
+		}
 	}
+	merged := make([]*cell.Cell, 0, len(cells)+2)
+	merged = append(merged, cells[:insertAt]...)
+	merged = append(merged, &cell.Cell{Type: cell.CellTypeKey, Data: key}, &cell.Cell{Type: cell.CellTypeValue, Data: value})
+	merged = append(merged, cells[insertAt:]...)
+
+	left, right, rightMinKey := splitCells(merged)
+	if left == nil {
+		return errors.New("page too small to split")
+	}
+
+	// rewrite left into current page
+	lp, err := bt.c.FetchPage(currentPageID)
+	if err != nil {
+		return err
+	}
+	if err := bt.writeLeafPage(lp, currentPageID, left); err != nil {
+		bt.c.UnpinPage(currentPageID, false)
+		return err
+	}
+	bt.c.UnpinPage(currentPageID, true)
+
+	// create right page
+	rightPageID, err := bt.createNewLeafPage(right)
+	if err != nil {
+		return err
+	}
+
+	if len(path) == 0 {
+		return bt.createNewRoot(currentPageID, rightMinKey, rightPageID)
+	}
+	return bt.insertIntoParent(path[len(path)-1], rightMinKey, rightPageID, path[:len(path)-1])
 }
