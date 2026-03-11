@@ -272,3 +272,44 @@ func (p *Page) FindAndUpdate(key []byte, newValue []byte, compare func(a, b []by
 
 	return true, nil
 }
+
+func (p *Page) MarkDeleted(key []byte, compare func(a, b []byte) int) (bool, error) {
+	cells, err := p.ReadCells()
+
+	if err != nil {
+		return false, err
+	}
+
+	found := false
+	for i := 0; i < len(cells); i += 2 {
+		if compare(cells[i].Data, key) == 0 {
+			cells[i+1] = &cell.Cell{Type: cell.CellTypeDeleted, Data: nil}
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return false, nil
+	}
+
+	recno := p.PageHeader.Recno
+
+	clear(p.Data)
+	InitPage(p, recno, PageTypeRowLeaf)
+
+	for i := 0; i < len(cells); i += 2 {
+		if cells[i+1].Type == cell.CellTypeDeleted {
+			err := p.AppendDeleted(cells[i].Data)
+			if err != nil {
+				return false, err
+			}
+		} else {
+			err := p.AppendKeyValue(cells[i].Data, cells[i+1].Data)
+			if err != nil {
+				return false, err
+			}
+		}
+	}
+	return true, nil
+}
