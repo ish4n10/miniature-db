@@ -48,6 +48,9 @@ func (bt *Btree) Search(key []byte) ([]byte, error) {
 		case page.PageTypeRowLeaf:
 			for i := 0; i+1 < len(cells); i += 2 {
 				if bt.compare(cells[i].Data, key) == 0 {
+					if cells[i+1].Type == cell.CellTypeDeleted {
+						return nil, errors.New("key not found")
+					}
 					val := make([]byte, len(cells[i+1].Data))
 					copy(val, cells[i+1].Data)
 					return val, nil
@@ -174,4 +177,57 @@ func (bt *Btree) Insert(key []byte, value []byte) error {
 		return bt.createNewRoot(currentPageID, rightMinKey, rightPageID)
 	}
 	return bt.insertIntoParent(path[len(path)-1], rightMinKey, rightPageID, path[:len(path)-1])
+}
+
+func (bt *Btree) Delete(key []byte) error {
+	var path []uint32
+	currentPageID := bt.rootPageID
+
+	// traverse to leaf
+	for {
+		p, err := bt.c.FetchPage(currentPageID)
+		if err != nil {
+			return err
+		}
+
+		pageType := p.PageHeader.Type
+		if pageType == page.PageTypeRowLeaf {
+			bt.c.UnpinPage(currentPageID, false)
+			break
+		}
+
+		cells, err := p.ReadCells()
+		bt.c.UnpinPage(currentPageID, false)
+		if err != nil {
+			return err
+		}
+
+		childPageID := binary.LittleEndian.Uint32(cells[0].Data)
+		for i := 1; i+1 < len(cells); i += 2 {
+			if bt.compare(key, cells[i].Data) >= 0 {
+				childPageID = binary.LittleEndian.Uint32(cells[i+1].Data)
+			}
+		}
+
+		path = append(path, currentPageID)
+		currentPageID = childPageID
+	}
+
+	p, err := bt.c.FetchPage(currentPageID)
+	if err != nil {
+		return err
+	}
+
+	found, err := p.MarkDeleted(key, bt.compare)
+	if err != nil {
+		bt.c.UnpinPage(currentPageID, false)
+		return err
+	}
+	if !found {
+		bt.c.UnpinPage(currentPageID, false)
+		return errors.New("key not found")
+	}
+
+	bt.c.UnpinPage(currentPageID, true)
+	return nil
 }

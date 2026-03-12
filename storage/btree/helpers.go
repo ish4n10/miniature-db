@@ -9,6 +9,15 @@ import (
 )
 
 func splitCells(cells []*cell.Cell) (left []*cell.Cell, right []*cell.Cell, rightMinKey []byte) {
+	// compact tombstones out before splitting
+	live := make([]*cell.Cell, 0, len(cells))
+	for i := 0; i+1 < len(cells); i += 2 {
+		if cells[i+1].Type != cell.CellTypeDeleted {
+			live = append(live, cells[i], cells[i+1])
+		}
+	}
+	cells = live
+
 	n := len(cells)
 	if n < 4 {
 		return nil, nil, nil
