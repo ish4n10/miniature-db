@@ -14,14 +14,15 @@ const (
 )
 
 type PageHeader struct {
-	Recno    uint64
-	WriteGen uint64
-	MemSize  uint32
-	Entries  uint32
-	Type     constants.PageTypeT
-	Flags    uint8
-	Unused   uint8
-	Version  uint8
+	Recno      uint64
+	WriteGen   uint64
+	MemSize    uint32
+	Entries    uint32
+	Type       constants.PageTypeT
+	Flags      uint8
+	Unused     uint8
+	Version    uint8
+	NextPageID uint32
 }
 
 type BlockHeader struct {
@@ -40,17 +41,19 @@ func (ph *PageHeader) Write(buf []byte) {
 	buf[25] = ph.Flags
 	buf[26] = 0
 	buf[27] = ph.Version
+	binary.LittleEndian.PutUint32(buf[28:32], ph.NextPageID)
 }
 
 func ReadPageHeader(buf []byte) *PageHeader {
 	return &PageHeader{
-		Recno:    binary.LittleEndian.Uint64(buf[0:8]),
-		WriteGen: binary.LittleEndian.Uint64(buf[8:16]),
-		MemSize:  binary.LittleEndian.Uint32(buf[16:20]),
-		Entries:  binary.LittleEndian.Uint32(buf[20:24]),
-		Type:     constants.PageTypeT(buf[24]),
-		Flags:    buf[25],
-		Version:  buf[27],
+		Recno:      binary.LittleEndian.Uint64(buf[0:8]),
+		WriteGen:   binary.LittleEndian.Uint64(buf[8:16]),
+		MemSize:    binary.LittleEndian.Uint32(buf[16:20]),
+		Entries:    binary.LittleEndian.Uint32(buf[20:24]),
+		Type:       constants.PageTypeT(buf[24]),
+		Flags:      buf[25],
+		Version:    buf[27],
+		NextPageID: binary.LittleEndian.Uint32(buf[28:32]),
 	}
 }
 

@@ -198,14 +198,17 @@ func (p *Page) InsertSorted(key []byte, value []byte, compare func(a, b []byte) 
 		return err
 	}
 
+	nextPageID := p.PageHeader.NextPageID
+	recno := p.PageHeader.Recno
+
 	// check if key exists (including tombstones)
 	for i := 0; i+1 < len(cells); i += 2 {
 		if compare(cells[i].Data, key) == 0 {
-			// overwrite in place (live or tombstone)
 			cells[i+1] = &cell.Cell{Type: cell.CellTypeValue, Data: value}
-			recno := p.PageHeader.Recno
 			clear(p.Data)
 			InitPage(p, recno, PageTypeRowLeaf)
+			p.PageHeader.NextPageID = nextPageID
+			p.WriteHeaders()
 			for j := 0; j+1 < len(cells); j += 2 {
 				if cells[j+1].Type == cell.CellTypeDeleted {
 					p.AppendDeleted(cells[j].Data)
@@ -240,9 +243,11 @@ func (p *Page) InsertSorted(key []byte, value []byte, compare func(a, b []byte) 
 		return errors.New("page is full")
 	}
 
-	recno := p.PageHeader.Recno
 	clear(p.Data)
 	InitPage(p, recno, PageTypeRowLeaf)
+	p.PageHeader.NextPageID = nextPageID
+	p.WriteHeaders()
+
 	for i := 0; i+1 < len(newCells); i += 2 {
 		if newCells[i+1].Type == cell.CellTypeDeleted {
 			p.AppendDeleted(newCells[i].Data)
@@ -276,15 +281,16 @@ func (p *Page) FindAndUpdate(key []byte, newValue []byte, compare func(a, b []by
 		return false, nil
 	}
 
-	// rewrite the whole page from scratch
+	nextPageID := p.PageHeader.NextPageID
 	pageType := p.PageHeader.Type
 	recno := p.PageHeader.Recno
 	clear(p.Data)
 	InitPage(p, recno, pageType)
+	p.PageHeader.NextPageID = nextPageID
+	p.WriteHeaders()
 
 	for i := 0; i+1 < len(cells); i += 2 {
-		err := p.AppendKeyValue(cells[i].Data, cells[i+1].Data)
-		if err != nil {
+		if err := p.AppendKeyValue(cells[i].Data, cells[i+1].Data); err != nil {
 			return false, err
 		}
 	}
@@ -294,13 +300,12 @@ func (p *Page) FindAndUpdate(key []byte, newValue []byte, compare func(a, b []by
 
 func (p *Page) MarkDeleted(key []byte, compare func(a, b []byte) int) (bool, error) {
 	cells, err := p.ReadCells()
-
 	if err != nil {
 		return false, err
 	}
 
 	found := false
-	for i := 0; i < len(cells); i += 2 {
+	for i := 0; i+1 < len(cells); i += 2 {
 		if compare(cells[i].Data, key) == 0 {
 			cells[i+1] = &cell.Cell{Type: cell.CellTypeDeleted, Data: nil}
 			found = true
@@ -312,23 +317,25 @@ func (p *Page) MarkDeleted(key []byte, compare func(a, b []byte) int) (bool, err
 		return false, nil
 	}
 
+	// preserve NextPageID before rewriting
+	nextPageID := p.PageHeader.NextPageID
 	recno := p.PageHeader.Recno
-
 	clear(p.Data)
 	InitPage(p, recno, PageTypeRowLeaf)
+	p.PageHeader.NextPageID = nextPageID
+	p.WriteHeaders()
 
-	for i := 0; i < len(cells); i += 2 {
+	for i := 0; i+1 < len(cells); i += 2 {
 		if cells[i+1].Type == cell.CellTypeDeleted {
-			err := p.AppendDeleted(cells[i].Data)
-			if err != nil {
+			if err := p.AppendDeleted(cells[i].Data); err != nil {
 				return false, err
 			}
 		} else {
-			err := p.AppendKeyValue(cells[i].Data, cells[i+1].Data)
-			if err != nil {
+			if err := p.AppendKeyValue(cells[i].Data, cells[i+1].Data); err != nil {
 				return false, err
 			}
 		}
 	}
+
 	return true, nil
 }

@@ -157,21 +157,28 @@ func (bt *Btree) Insert(key []byte, value []byte) error {
 	}
 
 	// rewrite left into current page
+
 	lp, err := bt.c.FetchPage(currentPageID)
 	if err != nil {
 		return err
 	}
-	if err := bt.writeLeafPage(lp, currentPageID, left); err != nil {
+	oldNextPageID := lp.PageHeader.NextPageID
+
+	// create right page first so we know its ID
+	rightPageID, err := bt.createNewLeafPage(right, oldNextPageID)
+	if err != nil {
 		bt.c.UnpinPage(currentPageID, false)
 		return err
 	}
-	bt.c.UnpinPage(currentPageID, true)
 
-	// create right page
-	rightPageID, err := bt.createNewLeafPage(right)
-	if err != nil {
+	// rewrite left with NextPageID  right
+	if err := bt.writeLeafPage(lp, currentPageID, left, rightPageID); err != nil {
+		bt.c.UnpinPage(currentPageID, false)
 		return err
 	}
+	fmt.Printf("split: currentPageID=%d rightPageID=%d oldNextPageID=%d\n",
+		currentPageID, rightPageID, oldNextPageID)
+	bt.c.UnpinPage(currentPageID, true)
 
 	if len(path) == 0 {
 		return bt.createNewRoot(currentPageID, rightMinKey, rightPageID)

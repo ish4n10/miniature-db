@@ -39,10 +39,12 @@ func splitCells(cells []*cell.Cell) (left []*cell.Cell, right []*cell.Cell, righ
 	return
 }
 
-func (bt *Btree) writeLeafPage(p *page.Page, pageID uint32, cells []*cell.Cell) error {
+func (bt *Btree) writeLeafPage(p *page.Page, pageID uint32, cells []*cell.Cell, nextPageID uint32) error {
 	recno := p.PageHeader.Recno
 	clear(p.Data)
 	page.InitPage(p, recno, page.PageTypeRowLeaf)
+	p.PageHeader.NextPageID = nextPageID
+	p.WriteHeaders()
 
 	for i := 0; i+1 < len(cells); i += 2 {
 		if err := p.AppendKeyValue(cells[i].Data, cells[i+1].Data); err != nil {
@@ -53,12 +55,12 @@ func (bt *Btree) writeLeafPage(p *page.Page, pageID uint32, cells []*cell.Cell) 
 	return bt.dm.WritePage(pageID, p.Data)
 }
 
-func (bt *Btree) createNewLeafPage(cells []*cell.Cell) (uint32, error) {
+func (bt *Btree) createNewLeafPage(cells []*cell.Cell, nextPageID uint32) (uint32, error) {
 	newPageID := bt.dm.AllocatePage()
 	p := page.NewPage()
 	page.InitPage(p, 0, page.PageTypeRowLeaf)
 
-	if err := bt.writeLeafPage(p, newPageID, cells); err != nil {
+	if err := bt.writeLeafPage(p, newPageID, cells, nextPageID); err != nil {
 		return 0, err
 	}
 	return newPageID, nil
@@ -145,16 +147,12 @@ func (bt *Btree) insertIntoParent(parentPageID uint32, separator []byte, rightPa
 	pairCount := (len(newCells) - 1) / 2
 	midPair := pairCount / 2
 
-	// left gets: [addr][key][addr]...[key][addr] (midPair pairs)
-	// promote: newCells[midPair*2+1] (the middle key)
-	// right gets: [addr][key][addr]... starting after promoted key
-
 	splitIdx := 1 + midPair*2 // index of promoted key in newCells
 	promotedKey := make([]byte, len(newCells[splitIdx].Data))
 	copy(promotedKey, newCells[splitIdx].Data)
 
 	leftCells := newCells[:splitIdx]    // [addr][key][addr]...[key][addr]
-	rightCells := newCells[splitIdx+1:] // starts with [addr][key][addr]...
+	rightCells := newCells[splitIdx+1:] // starts with [addr][key][addr]
 
 	// rewrite left into parentPageID
 	lp, err := bt.c.FetchPage(parentPageID)
