@@ -198,7 +198,26 @@ func (p *Page) InsertSorted(key []byte, value []byte, compare func(a, b []byte) 
 		return err
 	}
 
-	// find insert position
+	// check if key exists (including tombstones)
+	for i := 0; i+1 < len(cells); i += 2 {
+		if compare(cells[i].Data, key) == 0 {
+			// overwrite in place (live or tombstone)
+			cells[i+1] = &cell.Cell{Type: cell.CellTypeValue, Data: value}
+			recno := p.PageHeader.Recno
+			clear(p.Data)
+			InitPage(p, recno, PageTypeRowLeaf)
+			for j := 0; j+1 < len(cells); j += 2 {
+				if cells[j+1].Type == cell.CellTypeDeleted {
+					p.AppendDeleted(cells[j].Data)
+				} else {
+					p.AppendKeyValue(cells[j].Data, cells[j+1].Data)
+				}
+			}
+			return nil
+		}
+	}
+
+	// new key — find insert position
 	insertAt := len(cells)
 	for i := 0; i+1 < len(cells); i += 2 {
 		if compare(key, cells[i].Data) < 0 {
@@ -207,12 +226,9 @@ func (p *Page) InsertSorted(key []byte, value []byte, compare func(a, b []byte) 
 		}
 	}
 
-	newKey := &cell.Cell{Type: cell.CellTypeKey, Data: key}
-	newVal := &cell.Cell{Type: cell.CellTypeValue, Data: value}
-
 	newCells := make([]*cell.Cell, 0, len(cells)+2)
 	newCells = append(newCells, cells[:insertAt]...)
-	newCells = append(newCells, newKey, newVal)
+	newCells = append(newCells, &cell.Cell{Type: cell.CellTypeKey, Data: key}, &cell.Cell{Type: cell.CellTypeValue, Data: value})
 	newCells = append(newCells, cells[insertAt:]...)
 
 	// check if it fits
@@ -224,12 +240,15 @@ func (p *Page) InsertSorted(key []byte, value []byte, compare func(a, b []byte) 
 		return errors.New("page is full")
 	}
 
-	// rewrite page
 	recno := p.PageHeader.Recno
 	clear(p.Data)
 	InitPage(p, recno, PageTypeRowLeaf)
 	for i := 0; i+1 < len(newCells); i += 2 {
-		p.AppendKeyValue(newCells[i].Data, newCells[i+1].Data)
+		if newCells[i+1].Type == cell.CellTypeDeleted {
+			p.AppendDeleted(newCells[i].Data)
+		} else {
+			p.AppendKeyValue(newCells[i].Data, newCells[i+1].Data)
+		}
 	}
 	return nil
 }
