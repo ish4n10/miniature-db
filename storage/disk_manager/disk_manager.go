@@ -51,21 +51,34 @@ func InitDiskManager(path string) (*DiskManager, error) {
 
 func (dm *DiskManager) writeDescriptor() error {
 	buf := make([]byte, constants.PageSize)
-	WriteDescriptorBlock(buf)
-
+	WriteDescriptorBlock(buf, 0) // catalogRootPageID=0 on fresh db
 	_, err := dm.file.WriteAt(buf, 0)
 	return err
 }
 
 func (dm *DiskManager) verifyDescriptor() error {
 	buf := make([]byte, constants.PageSize)
-	_, err := dm.file.ReadAt(buf, 0)
-	if err != nil {
+	if _, err := dm.file.ReadAt(buf, 0); err != nil {
 		return err
+	}
+	_, err := ReadAndVerifyDescriptorBlock(buf)
+	return err
+}
+
+func (dm *DiskManager) FlushDescriptor(catalogRootPageID uint32) error {
+	buf := make([]byte, constants.PageSize)
+	WriteDescriptorBlock(buf, catalogRootPageID)
+	_, err := dm.file.WriteAt(buf, 0)
+	return err
+}
+
+func (dm *DiskManager) ReadDescriptor() (uint32, error) {
+	buf := make([]byte, constants.PageSize)
+	if _, err := dm.file.ReadAt(buf, 0); err != nil {
+		return 0, err
 	}
 	return ReadAndVerifyDescriptorBlock(buf)
 }
-
 func (dm *DiskManager) AllocatePage() uint32 {
 	dm.mutex.Lock()
 	defer dm.mutex.Unlock()

@@ -238,3 +238,12 @@ func (bt *Btree) Delete(key []byte) error {
 	bt.c.UnpinPage(currentPageID, true)
 	return nil
 }
+
+func (bt *Btree) RootPageID() uint32 {
+	return bt.rootPageID
+}
+
+// OpenBtree reopens an existing B-tree at a known root pageID
+func OpenBtree(c *cache.Cache, dm *diskmanager.DiskManager, compare func(a, b []byte) int, rootPageID uint32) *Btree {
+	return &Btree{rootPageID: rootPageID, c: c, dm: dm, compare: compare}
+}
