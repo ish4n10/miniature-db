@@ -18,7 +18,7 @@ type InsertStmt struct {
 
 type DeleteStmt struct {
 	TableName string
-	Key       string
+	Where     *WhereClause
 }
 
 type SelectStmt struct {
