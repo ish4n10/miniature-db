@@ -20,3 +20,19 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 	}
 	return &Result{}, nil
 }
+
+func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error) {
+	err := e.db.DropTable(stmt.TableName)
+	if err != nil {
+		return nil, err
+	}
+	return &Result{}, nil
+}
+
+func (e *Executor) executeInsertTable(stmt *parser.InsertStmt) (*Result, error) {
+	err := e.db.Put(stmt.TableName, []byte(stmt.Key), []byte(stmt.Value))
+	if err != nil {
+		return nil, err
+	}
+	return &Result{Affected: 1}, nil
+}
