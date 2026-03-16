@@ -176,8 +176,6 @@ func (bt *Btree) Insert(key []byte, value []byte) error {
 		bt.c.UnpinPage(currentPageID, false)
 		return err
 	}
-	fmt.Printf("split: currentPageID=%d rightPageID=%d oldNextPageID=%d\n",
-		currentPageID, rightPageID, oldNextPageID)
 	bt.c.UnpinPage(currentPageID, true)
 
 	if len(path) == 0 {

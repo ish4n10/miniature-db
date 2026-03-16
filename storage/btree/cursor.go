@@ -2,7 +2,6 @@ package btree
 
 import (
 	"errors"
-	"fmt"
 
 	cell "github.com/ish4n10/miniaturedb/storage/cell"
 	page "github.com/ish4n10/miniaturedb/storage/page"
@@ -101,7 +100,6 @@ func (c *Cursor) advanceToNextLeaf() error {
 			return err
 		}
 		nextPageID := p.PageHeader.NextPageID
-		fmt.Printf("advanceToNextLeaf: pageID=%d nextPageID=%d\n", c.pageID, nextPageID)
 
 		c.bt.c.UnpinPage(c.pageID, false)
 
