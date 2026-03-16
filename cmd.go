@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ish4n10/miniaturedb/sql/executor"
 	"github.com/ish4n10/miniaturedb/sql/lexer"
@@ -98,6 +99,8 @@ func main() {
 }
 
 func runQuery(exe *executor.Executor, query string) (*executor.Result, error) {
+	start := time.Now()
+
 	lx := lexer.NewLexer(query)
 	tokens, err := lx.Tokenize()
 	if err != nil {
@@ -110,7 +113,13 @@ func runQuery(exe *executor.Executor, query string) (*executor.Result, error) {
 		return nil, fmt.Errorf("parse error: %v", err)
 	}
 
-	return exe.Execute(stmt)
+	result, err := exe.Execute(stmt)
+	if err != nil {
+		return nil, err
+	}
+
+	result.Duration = time.Since(start)
+	return result, nil
 }
 
 func printResult(r *executor.Result) {
@@ -120,6 +129,8 @@ func printResult(r *executor.Result) {
 		} else {
 			fmt.Println("OK\n")
 		}
+		fmt.Printf("%d row(s) (%.3f ms)\n\n", len(r.Rows), float64(r.Duration.Microseconds())/1000.0)
+
 		return
 	}
 
@@ -157,6 +168,8 @@ func printResult(r *executor.Result) {
 
 	fmt.Println(border)
 	fmt.Printf("%d row(s)\n\n", len(r.Rows))
+	fmt.Printf("%d row(s) (%.3f ms)\n\n", len(r.Rows), float64(r.Duration.Microseconds())/1000.0)
+
 }
 
 func printHelp() {
