@@ -13,7 +13,20 @@ func NewExecutor(db *db.DB) *Executor {
 }
 
 func (e *Executor) Execute(stmt parser.Statement) (*Result, error) {
-
+	switch s := stmt.(type) {
+	case *parser.CreateTableStmt:
+		return e.executeCreateTable(s)
+	case *parser.DropTableStmt:
+		return e.executeDropTable(s)
+	case *parser.InsertStmt:
+		return e.executeInsert(s)
+	case *parser.DeleteStmt:
+		return e.executeDelete(s)
+	case *parser.SelectStmt:
+		return e.executeSelect(s)
+	default:
+		return nil, fmt.Errorf("unknown statement type %T", stmt)
+	}
 }
 
 func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, error) {
